@@ -1,463 +1,394 @@
-import { useState, useRef } from 'react';
-import { donorApi, utilityApi } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { requestApi, donorApi, analyticsApi } from '../services/api';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { DashboardLayout } from '../components/DashboardLayout';
+import { FulfillRequestModal } from '../components/FulfillRequestModal';
 import { 
   Heart, 
-  Camera, 
+  Search, 
   MapPin, 
+  Clock,
   Package,
-  Upload,
-  Check,
-  Truck,
+  TrendingUp,
   AlertTriangle,
-  CheckCircle,
-  Store,
-  Building,
-  Users,
-  Home,
-  Utensils
+  Filter,
+  Building2,
+  Leaf,
+  Drumstick
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-export const FulfillRequestModal = ({ request, open, onOpenChange, onSuccess, userLocation }) => {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [formData, setFormData] = useState({
-    donor_type: '',
-    quantity: request?.quantity - (request?.fulfilled_quantity || 0) || '',
-    food_condition: '',
-    availability_time: '',
-    delivery_method: '',
-    food_photo: null,
-    geo_tag: userLocation || null,
+export const DonorDashboard = () => {
+  const { user } = useAuth();
+  const [requests, setRequests] = useState([]);
+  const [fulfillments, setFulfillments] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [filters, setFilters] = useState({
+    search: '',
+    foodType: 'all',
+    foodCategory: 'all',
+    urgency: 'all',
   });
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const fileInputRef = useRef(null);
+  const [userLocation, setUserLocation] = useState(null);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handlePhotoCapture = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setPhotoPreview(event.target?.result);
-    };
-    reader.readAsDataURL(file);
-
-    // Upload file
+  const fetchData = useCallback(async () => {
     try {
-      const response = await utilityApi.uploadFile(file);
-      setFormData(prev => ({ ...prev, food_photo: response.data.file_id }));
-      
-      // Get geotag if available
+      const params = {};
       if (userLocation) {
-        setFormData(prev => ({ ...prev, geo_tag: userLocation }));
+        params.lat = userLocation.lat;
+        params.lng = userLocation.lng;
       }
       
-      toast.success('Photo uploaded!');
+      const [reqRes, fulRes, anaRes] = await Promise.all([
+        requestApi.getAll(params),
+        donorApi.getFulfillments(),
+        analyticsApi.getUser(),
+      ]);
+      
+      setRequests(reqRes.data || []);
+      setFulfillments(fulRes.data || []);
+      setAnalytics(anaRes.data);
     } catch (error) {
-      console.error('Photo upload error:', error);
-      toast.error('Failed to upload photo');
-    }
-  };
-
-  const useCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setFormData(prev => ({
-            ...prev,
-            geo_tag: {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-            }
-          }));
-          toast.success('Location captured!');
-        },
-        () => toast.error('Could not get your location')
-      );
-    } else {
-      toast.error('Geolocation is not supported by your browser');
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    // Validation
-    if (!formData.donor_type || !formData.quantity || !formData.food_condition || 
-        !formData.availability_time || !formData.delivery_method) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-    
-    if (!formData.food_photo) {
-      toast.error('Please upload a photo of the food');
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const submitData = {
-        request_id: request.id,
-        donor_type: formData.donor_type,
-        quantity: parseInt(formData.quantity),
-        food_condition: formData.food_condition,
-        availability_time: new Date(formData.availability_time).toISOString(),
-        delivery_method: formData.delivery_method,
-        food_photo: formData.food_photo,
-        geo_tag: formData.geo_tag,
-      };
-      
-      const response = await donorApi.createFulfillment(submitData);
-      
-      // Success handling
-      setSuccess(true);
-      toast.success('Donation submitted successfully! Thank you for your generosity!');
-      
-      // Wait to show success state, then callback
-      setTimeout(() => {
-        if (onSuccess) onSuccess();
-        onOpenChange(false);
-        setSuccess(false);
-        
-        // Reset form
-        setFormData({
-          donor_type: '',
-          quantity: '',
-          food_condition: '',
-          availability_time: '',
-          delivery_method: '',
-          food_photo: null,
-          geo_tag: null,
-        });
-        setPhotoPreview(null);
-      }, 1500);
-      
-    } catch (error) {
-      console.error('Fulfillment submission error:', error);
-      
-      // Enhanced error handling
-      let errorMessage = 'Failed to submit fulfillment';
-      
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        errorMessage = 'Authentication required. Please log in again.';
-      } else if (error.response?.data?.detail) {
-        errorMessage = error.response.data.detail;
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      toast.error(errorMessage);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
+  }, [userLocation]);
+
+  useEffect(() => {
+    // Get user location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        () => {
+          console.log('Location permission denied');
+        }
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const getUrgencyColor = (urgency) => {
+    const colors = {
+      critical: 'bg-destructive text-destructive-foreground',
+      high: 'bg-accent text-accent-foreground',
+      medium: 'bg-warning text-warning-foreground',
+      low: 'bg-secondary text-secondary-foreground',
+    };
+    return colors[urgency] || colors.medium;
   };
 
-  if (!request) return null;
+  const getCategoryIcon = (category) => {
+    if (category === 'veg') {
+      return <Leaf className="h-3 w-3 text-green-600" />;
+    } else if (category === 'non-veg') {
+      return <Drumstick className="h-3 w-3 text-red-600" />;
+    } else if (category === 'vegan') {
+      return <Leaf className="h-3 w-3 text-emerald-600" />;
+    }
+    return null;
+  };
 
-  const remainingQuantity = request.quantity - (request.fulfilled_quantity || 0);
+  const filteredRequests = requests.filter(req => {
+    if (filters.search && !req.ngo_name?.toLowerCase().includes(filters.search.toLowerCase()) &&
+        !req.address?.toLowerCase().includes(filters.search.toLowerCase())) {
+      return false;
+    }
+    if (filters.foodType !== 'all' && req.food_type !== filters.foodType) {
+      return false;
+    }
+    if (filters.foodCategory !== 'all' && req.food_category !== filters.foodCategory) {
+      return false;
+    }
+    if (filters.urgency !== 'all' && req.urgency_level !== filters.urgency) {
+      return false;
+    }
+    return true;
+  });
 
-  // Success screen
-  if (success) {
+  if (loading) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
-          <div className="text-center py-8 space-y-4">
-            <div className="w-20 h-20 bg-success/10 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle className="h-10 w-10 text-success" />
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Donation Submitted Successfully!</h3>
-              <p className="text-muted-foreground">
-                Thank you for your generous donation to {request.ngo_name}. 
-                The admin will review and approve your fulfillment soon.
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-2 text-success">
-              <Heart className="h-5 w-5 fill-current" />
-              <span className="font-medium">Making a difference!</span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-pulse text-muted-foreground">Loading...</div>
+        </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="font-heading flex items-center gap-2">
-            <Heart className="h-5 w-5 text-accent" />
-            Fulfill Food Request
-          </DialogTitle>
-          <DialogDescription>
-            Donate food to {request.ngo_name}
-          </DialogDescription>
-        </DialogHeader>
-        
-        {/* Request Summary */}
-        <div className="p-4 bg-secondary/50 rounded-xl space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">NGO</span>
-            <span className="font-medium">{request.ngo_name}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Food Type</span>
-            <span className="font-medium capitalize">{request.food_type}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Needed</span>
-            <span className="font-medium">{remainingQuantity} servings</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Urgency</span>
-            <Badge className={
-              request.urgency_level === 'critical' ? 'bg-destructive text-destructive-foreground' :
-              request.urgency_level === 'high' ? 'bg-accent text-accent-foreground' :
-              'bg-warning text-warning-foreground'
-            }>
-              {request.urgency_level === 'critical' && <AlertTriangle className="h-3 w-3 mr-1" />}
-              {request.urgency_level}
-            </Badge>
-          </div>
+    <DashboardLayout>
+      <div className="space-y-8" data-testid="donor-dashboard">
+        {/* Header */}
+        <div>
+          <h1 className="font-heading text-2xl sm:text-3xl font-bold text-foreground">
+            Donor Dashboard
+          </h1>
+          <p className="text-muted-foreground mt-1">Browse and fulfill food requests from verified NGOs</p>
         </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="donor_type">Donor Type *</Label>
-            <Select 
-              value={formData.donor_type} 
-              onValueChange={(value) => setFormData(prev => ({ ...prev, donor_type: value }))}
-            >
-              <SelectTrigger data-testid="donor-type-select">
-                <SelectValue placeholder="Select your donor type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="restaurant">
-                  <span className="flex items-center gap-2">
-                    <Utensils className="h-4 w-4" />
-                    Restaurants & Cafés
-                  </span>
-                </SelectItem>
-                <SelectItem value="hotel">
-                  <span className="flex items-center gap-2">
-                    <Building className="h-4 w-4" />
-                    Hotels & Catering Services
-                  </span>
-                </SelectItem>
-                <SelectItem value="event">
-                  <span className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Marriage Halls & Event Organizers
-                  </span>
-                </SelectItem>
-                <SelectItem value="corporate">
-                  <span className="flex items-center gap-2">
-                    <Store className="h-4 w-4" />
-                    Corporate Offices & College Canteens
-                  </span>
-                </SelectItem>
-                <SelectItem value="individual">
-                  <span className="flex items-center gap-2">
-                    <Home className="h-4 w-4" />
-                    Households / Individuals
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="quantity">Quantity to Donate *</Label>
-            <Input
-              id="quantity"
-              name="quantity"
-              type="number"
-              min="1"
-              max={remainingQuantity}
-              value={formData.quantity}
-              onChange={handleInputChange}
-              placeholder={`Up to ${remainingQuantity} servings`}
-              data-testid="donate-quantity-input"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="food_condition">Food Condition *</Label>
-            <Select 
-              value={formData.food_condition} 
-              onValueChange={(value) => setFormData(prev => ({ ...prev, food_condition: value }))}
-            >
-              <SelectTrigger data-testid="food-condition-select">
-                <SelectValue placeholder="Select condition" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fresh">Fresh - Just prepared</SelectItem>
-                <SelectItem value="cooked">Cooked - Within few hours</SelectItem>
-                <SelectItem value="packed">Packed - Sealed packaging</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="availability_time">Available From *</Label>
-            <Input
-              id="availability_time"
-              name="availability_time"
-              type="datetime-local"
-              value={formData.availability_time}
-              onChange={handleInputChange}
-              data-testid="availability-time-input"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="delivery_method">Delivery Method *</Label>
-            <Select 
-              value={formData.delivery_method} 
-              onValueChange={(value) => setFormData(prev => ({ ...prev, delivery_method: value }))}
-            >
-              <SelectTrigger data-testid="delivery-method-select">
-                <SelectValue placeholder="Select delivery method" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="self">
-                  <span className="flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    Self Delivery - I will deliver
-                  </span>
-                </SelectItem>
-                <SelectItem value="volunteer">
-                  <span className="flex items-center gap-2">
-                    <Truck className="h-4 w-4" />
-                    Volunteer Delivery - Need pickup
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          {/* Photo Upload */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Camera className="h-4 w-4 text-primary" />
-              Food Photo * (Camera only)
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Upload a geo-tagged photo of the food for verification
-            </p>
-            
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoCapture}
-              className="hidden"
-              data-testid="photo-input"
-            />
-            
-            {photoPreview ? (
-              <div className="relative">
-                <img 
-                  src={photoPreview} 
-                  alt="Food preview" 
-                  className="w-full h-48 object-cover rounded-xl"
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-4">
+          <Card className="border-stone-200" data-testid="stat-donations">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-accent/10 rounded-xl">
+                  <Heart className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{analytics?.total_donations || 0}</p>
+                  <p className="text-sm text-muted-foreground">Total Donations</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-stone-200" data-testid="stat-meals">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-success/10 rounded-xl">
+                  <Package className="h-5 w-5 text-success" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{analytics?.total_meals_donated || 0}</p>
+                  <p className="text-sm text-muted-foreground">Meals Donated</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters */}
+        <Card className="border-stone-200">
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-4">
+              {/* Search Bar */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by NGO or location..."
+                  className="pl-10"
+                  value={filters.search}
+                  onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  data-testid="search-input"
                 />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="absolute bottom-2 right-2 rounded-full"
-                  onClick={() => fileInputRef.current?.click()}
+              </div>
+              
+              {/* Filter Dropdowns */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Select 
+                  value={filters.foodType} 
+                  onValueChange={(value) => setFilters(prev => ({ ...prev, foodType: value }))}
                 >
-                  Retake
-                </Button>
-                <Badge className="absolute top-2 right-2 bg-success text-success-foreground">
-                  <Check className="h-3 w-3 mr-1" />
-                  Uploaded
-                </Badge>
+                  <SelectTrigger data-testid="food-type-filter">
+                    <SelectValue placeholder="Food Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="cooked">Cooked</SelectItem>
+                    <SelectItem value="packaged">Packaged</SelectItem>
+                    <SelectItem value="raw">Raw</SelectItem>
+                    <SelectItem value="mixed">Mixed</SelectItem>
+                    <SelectItem value="bio-waste foods">Bio-waste Foods</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Select 
+                  value={filters.foodCategory} 
+                  onValueChange={(value) => setFilters(prev => ({ ...prev, foodCategory: value }))}
+                >
+                  <SelectTrigger data-testid="food-category-filter">
+                    <SelectValue placeholder="Food Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="veg">
+                      <span className="flex items-center gap-2">
+                        <Leaf className="h-4 w-4 text-green-600" />
+                        Vegetarian
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="non-veg">
+                      <span className="flex items-center gap-2">
+                        <Drumstick className="h-4 w-4 text-red-600" />
+                        Non-Vegetarian
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="vegan">
+                      <span className="flex items-center gap-2">
+                        <Leaf className="h-4 w-4 text-emerald-600" />
+                        Vegan
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="bio-waste foods">
+                      <span className="flex items-center gap-2">
+                        <Leaf className="h-4 w-4 text-amber-600" />
+                        Bio-waste Foods
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="mixed">Mixed (Veg & Non-Veg)</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Select 
+                  value={filters.urgency} 
+                  onValueChange={(value) => setFilters(prev => ({ ...prev, urgency: value }))}
+                >
+                  <SelectTrigger data-testid="urgency-filter">
+                    <SelectValue placeholder="Urgency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Urgency</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Requests List */}
+        <Card className="border-stone-200">
+          <CardHeader>
+            <CardTitle className="font-heading">Available Requests</CardTitle>
+            <CardDescription>
+              {filteredRequests.length} request{filteredRequests.length !== 1 ? 's' : ''} available
+              {userLocation && ' • Sorted by distance'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {filteredRequests.length === 0 ? (
+              <div className="text-center py-12">
+                <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No requests match your filters</p>
               </div>
             ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full h-32 rounded-xl border-dashed"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <Camera className="h-8 w-8 text-muted-foreground" />
-                  <span>Take Photo</span>
-                </div>
-              </Button>
+              <div className="space-y-4">
+                {filteredRequests.map((request) => (
+                  <div 
+                    key={request.id} 
+                    className="p-4 rounded-xl border border-stone-200 hover:bg-secondary/30 smooth-transition"
+                    data-testid={`request-${request.id}`}
+                  >
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Building2 className="h-4 w-4 text-primary" />
+                          <span className="font-medium">{request.ngo_name}</span>
+                          <Badge className={getUrgencyColor(request.urgency_level)}>
+                            {request.urgency_level === 'critical' && <AlertTriangle className="h-3 w-3 mr-1" />}
+                            {request.urgency_level}
+                          </Badge>
+                          {request.food_category && (
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              {getCategoryIcon(request.food_category)}
+                              <span className="capitalize">{request.food_category}</span>
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Package className="h-3 w-3" />
+                            {request.food_type} • {request.quantity} servings
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {request.address}
+                          </span>
+                          {request.distance && (
+                            <span className="flex items-center gap-1 text-primary font-medium">
+                              {request.distance.toFixed(1)} km away
+                            </span>
+                          )}
+                        </div>
+                        {request.description && (
+                          <p className="text-sm text-muted-foreground">{request.description}</p>
+                        )}
+                        <div className="text-xs text-muted-foreground">
+                          Needed: {request.quantity - request.fulfilled_quantity} more servings
+                        </div>
+                      </div>
+                      <Button 
+                        className="rounded-full"
+                        onClick={() => setSelectedRequest(request)}
+                        data-testid={`fulfill-btn-${request.id}`}
+                      >
+                        <Heart className="h-4 w-4 mr-2" />
+                        Fulfill
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-          
-          {/* Location */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-primary" />
-              Your Location
-            </Label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={useCurrentLocation}
-                className="rounded-full"
-                size="sm"
-              >
-                <MapPin className="h-4 w-4 mr-2" />
-                Capture Location
-              </Button>
-              {formData.geo_tag && (
-                <Badge className="bg-success text-success-foreground">
-                  <Check className="h-3 w-3 mr-1" />
-                  Location captured
-                </Badge>
-              )}
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={() => onOpenChange(false)}
-              className="rounded-full"
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              className="rounded-full bg-accent hover:bg-accent/90"
-              disabled={loading}
-              data-testid="submit-fulfillment"
-            >
-              {loading ? 'Submitting...' : 'Donate Food'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </CardContent>
+        </Card>
+
+        {/* My Fulfillments */}
+        {fulfillments.length > 0 && (
+          <Card className="border-stone-200">
+            <CardHeader>
+              <CardTitle className="font-heading">My Fulfillments</CardTitle>
+              <CardDescription>Track your donation contributions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {fulfillments.map((fulfillment) => (
+                  <div 
+                    key={fulfillment.id} 
+                    className="p-4 rounded-xl border border-stone-200"
+                    data-testid={`fulfillment-${fulfillment.id}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{fulfillment.quantity} servings • {fulfillment.food_condition}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Delivery: {fulfillment.delivery_method}
+                        </p>
+                      </div>
+                      <Badge className={
+                        fulfillment.status === 'confirmed' ? 'bg-success text-success-foreground' :
+                        fulfillment.status === 'delivered' ? 'bg-primary text-primary-foreground' :
+                        'bg-warning text-warning-foreground'
+                      }>
+                        {fulfillment.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <FulfillRequestModal 
+        request={selectedRequest}
+        open={!!selectedRequest}
+        onOpenChange={(open) => !open && setSelectedRequest(null)}
+        onSuccess={() => {
+          fetchData();
+          setSelectedRequest(null);
+        }}
+        userLocation={userLocation}
+      />
+    </DashboardLayout>
   );
 };
-;
-
-
