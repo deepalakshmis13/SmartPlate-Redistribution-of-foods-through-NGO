@@ -164,7 +164,7 @@ export const CreateRequestModal = ({ open, onOpenChange, onSuccess, verification
                   <SelectItem value="packaged">Packaged Food</SelectItem>
                   <SelectItem value="raw">Raw Ingredients</SelectItem>
                   <SelectItem value="mixed">Mixed</SelectItem>
-                  <SelectItem value="bio-waste foods">Mixed</SelectItem>
+                  <SelectItem value="bio-waste foods">Bio-waste Foods</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -196,11 +196,11 @@ export const CreateRequestModal = ({ open, onOpenChange, onSuccess, verification
                       <Leaf className="h-4 w-4 text-emerald-600" />
                       Vegan
                     </span>
-                   <SelectContent>
+                  </SelectItem>
                   <SelectItem value="bio-waste">
                     <span className="flex items-center gap-2">
-                      <Leaf className="h-4 w-4 text-green-600" />
-                      Vegetarian
+                      <Leaf className="h-4 w-4 text-amber-600" />
+                      Bio-waste Foods
                     </span>
                   </SelectItem>
                   <SelectItem value="mixed">Mixed (Veg & Non-Veg)</SelectItem>
@@ -337,4 +337,3 @@ export const CreateRequestModal = ({ open, onOpenChange, onSuccess, verification
     </Dialog>
   );
 };
-
