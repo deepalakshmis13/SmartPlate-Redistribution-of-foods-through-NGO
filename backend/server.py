@@ -1393,57 +1393,40 @@ async def get_user_analytics(user: Dict = Depends(get_current_user)):
 
 @api_router.post("/ai/urgency-score")
 async def calculate_urgency_score(request_id: str, user: Dict = Depends(require_admin)):
-    """Calculate AI urgency score for a request"""
     request = await db.food_requests.find_one({"id": request_id}, {"_id": 0})
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
-    
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        
-        llm_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not llm_key:
-            raise HTTPException(status_code=500, detail="LLM key not configured")
-        
-        chat = LlmChat(
-            api_key=llm_key,
-            session_id=f"urgency-{request_id}",
-            system_message="You are an AI assistant that calculates urgency scores for food requests. Return ONLY a number between 0 and 10."
-        ).with_model("openai", "gpt-5.2")
-        
-        prompt = f"""Calculate urgency score (0-10) for this food request:
-- Food type: {request.get('food_type')}
-- Quantity needed: {request.get('quantity')} servings
-- Current urgency level: {request.get('urgency_level')}
-- Description: {request.get('description', 'N/A')}
-- Created: {request.get('created_at')}
-- Expires: {request.get('expires_at', 'Not specified')}
 
-Return ONLY a single number between 0 and 10."""
-        
-        response = await chat.send_message(UserMessage(text=prompt))
-        
-        try:
-            score = float(response.strip())
-            score = max(0, min(10, score))
-        except:
-            score = 5.0
-        
-        await db.food_requests.update_one(
-            {"id": request_id},
-            {"$set": {"ai_urgency_score": score}}
-        )
-        
-        ai_log = {
-            "id": str(uuid.uuid4()),
-            "action": "urgency_score",
-            "target_id": request_id,
-            "result": score,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.ai_logs.insert_one(ai_log)
-        
-        return {"urgency_score": score}
+    # -------- Rule-based AI scoring --------
+    score = 0
+
+    urgency_weight = {
+        "low": 2,
+        "medium": 4,
+        "high": 7,
+        "critical": 9
+    }
+    score += urgency_weight.get(request.get("urgency_level", "medium"), 4)
+
+    quantity = request.get("quantity", 0)
+    if quantity >= 200:
+        score += 3
+    elif quantity >= 100:
+        score += 2
+    else:
+        score += 1
+
+    if request.get("food_type") == "cooked":
+        score += 1
+
+    score = min(score, 10)  # clamp to 10
+
+    await db.food_requests.update_one(
+        {"id": request_id},
+        {"$set": {"ai_urgency_score": score}}
+    )
+
+    return {"urgency_score": score}
     
     except Exception as e:
         logger.error(f"AI urgency score error: {e}")
@@ -1579,3 +1562,4 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
