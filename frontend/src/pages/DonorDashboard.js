@@ -203,6 +203,7 @@ export const DonorDashboard = () => {
                     <SelectItem value="packaged">Packaged</SelectItem>
                     <SelectItem value="raw">Raw</SelectItem>
                     <SelectItem value="mixed">Mixed</SelectItem>
+                    <SelectItem value="bio-waste foods ">Mixed</SelectItem>
                   </SelectContent>
                 </Select>
                 
@@ -231,6 +232,11 @@ export const DonorDashboard = () => {
                       <span className="flex items-center gap-2">
                         <Leaf className="h-4 w-4 text-emerald-600" />
                         Vegan
+                      </span>
+                    <SelectItem value="bio-waste foods">
+                      <span className="flex items-center gap-2">
+                        <Leaf className="h-4 w-4 text-green-600" />
+                        Vegetarian
                       </span>
                     </SelectItem>
                     <SelectItem value="mixed">Mixed (Veg & Non-Veg)</SelectItem>
@@ -385,3 +391,4 @@ export const DonorDashboard = () => {
     </DashboardLayout>
   );
 };
+
