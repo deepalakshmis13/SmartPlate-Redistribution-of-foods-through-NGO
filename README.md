@@ -3,6 +3,8 @@
 ![image_alt](https://github.com/Devadharshani13/SmartPlate-Redistribution-of-foods-through-NGO/blob/main/screenshot/home%20page.png?raw=true)
 
 ---
+## Demo link
+https://sp-orcin-nu.vercel.app/
 
 ## 📌 Project Overview
 
@@ -217,8 +219,9 @@ SmartPlate tracks real-time metrics:
 ## 👩‍💻 Team
 
 **Project Developer:**
-**Devadharshani**
-📧 [smartplate.foodredistribution@gmail.com](mailto:smartplate.foodredistribution@gmail.com)
+**S.Deepalakshmi**
+**B.Devadharshani**
+**B.Ambigai** 
 
 ---
 
