@@ -219,9 +219,9 @@ SmartPlate tracks real-time metrics:
 ## 👩‍💻 Team
 
 **Project Developer:**
-**S.Deepalakshmi**
-**B.Devadharshani**
-**B.Ambigai** 
+**S.Deepalakshmi ,**
+**B.Devadharshani ,**
+**B.Ambigai ,** 
 
 ---
 
